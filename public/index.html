@@ -527,9 +527,21 @@
       const [tweakPrompt, setTweakPrompt] = useState('');
       const [showTweakInput, setShowTweakInput] = useState(false);
       const [timer, setTimer] = useState(0);
-      
+      const [saveToast, setSaveToast] = useState(null); // { message, type }
       const iframeRef = useRef(null);
 
+      // Load existing project code on mount
+      useEffect(() => {
+        API.get(`/projects/${project.id}/files/index.html`)
+          .then(data => {
+            if (data.content) {
+              setArtifactHtml(data.content);
+            }
+          })
+          .catch(() => {});
+      }, [project.id]);
+
+      // Timer for streaming duration
       useEffect(() => {
         let interval;
         if (streaming) {
@@ -538,6 +550,14 @@
         }
         return () => clearInterval(interval);
       }, [streaming]);
+
+      // Auto-dismiss toast after 3 seconds
+      useEffect(() => {
+        if (saveToast) {
+          const t = setTimeout(() => setSaveToast(null), 3000);
+          return () => clearTimeout(t);
+        }
+      }, [saveToast]);
 
       const attachEditListeners = (iframeDoc) => {
         if (!iframeDoc) return;
@@ -782,12 +802,14 @@
                         filePath: 'index.html',
                         content: artifactHtml
                       });
-                      alert('Project saved!');
+                      setSaveToast({ message: '✓ Saved to project!', type: 'success' });
                     } catch (err) {
-                      alert('Save failed: ' + err.message);
+                      setSaveToast({ message: '✗ Save failed: ' + err.message, type: 'error' });
                     }
                   }}
-                  style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', background: '#ecfdf5', color: '#059669', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', background: '#ecfdf5', color: '#059669', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#d1fae5'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#ecfdf5'; }}
                 >
                   Save to Project
                 </button>
@@ -1120,6 +1142,30 @@
               </div>
             </div>
           </div>
+
+          {/* Toast Notification */}
+          {saveToast && (
+            <div style={{
+              position: 'fixed',
+              bottom: '24px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              padding: '12px 24px',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              zIndex: 9999,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              background: saveToast.type === 'success' ? '#059669' : '#ef4444',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              animation: 'toast-in 0.3s ease-out'
+            }}>
+              {saveToast.message}
+            </div>
+          )}
         </div>
       );
     }
