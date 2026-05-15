@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Open Design Lite</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- React via CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ============================================================
+    // API HELPERS
+    // ============================================================
+    console.log('=== Open Design Lite JS Loaded ===');
+
+    const API = {
+      async get(path) {
+        console.log('API GET:', path);
+        try {
+          const res = await fetch(`/api${path}`);
+          console.log('API GET response:', res.status);
+          if (!res.ok) throw new Error(`API error: ${res.status}`);
+          return res.json();
+        } catch (err) {
+          console.error('API GET error:', path, err);
+          throw err;
+        }
+      },
+      async post(path, body) {
+        const res = await fetch(`/api${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `API error: ${res.status}`);
+        }
+        return res.json();
+      },
+      async patch(path, body) {
+        const res = await fetch(`/api${path}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `API error: ${res.status}`);
+        }
+        return res.json();
+      },
+      async del(path) {
+        const res = await fetch(`/api${path}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `API error: ${res.status}`);
+        }
+        return res.json();
+      },
+    };
+
+    // ============================================================
+    // ICONS (simple SVG icons)
+    // ============================================================
+    const Icons = {
+      history: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>,
+      plus: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>,
+      chevronLeft: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>,
+      close: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>,
+      settings: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>,
+      send: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>,
+      stop: <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>,
+      file: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>,
+      eye: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>,
+      code: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>,
+      download: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>,
+      trash: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>,
+      edit: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>,
+      search: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>,
+      play: <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>,
+    };
+
+    // ============================================================
+    // SETTINGS DIALOG
+    // ============================================================
+    function SettingsDialog({ config, onClose, onSave }) {
+      const [tab, setTab] = useState('execution');
+      const [local, setLocal] = useState({ ...config });
+      const [saved, setSaved] = useState(false);
+
+      useEffect(() => {
+        setLocal({ ...config });
+      }, [config]);
+
+      const handleSave = () => {
+        onSave(local);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      };
+
+      const tabs = [
+        { id: 'execution', label: 'Execution' },
+        { id: 'agents', label: 'Agents' },
+        { id: 'skills', label: 'Skills' },
+        { id: 'design-systems', label: 'Design Systems' },
+        { id: 'appearance', label: 'Appearance' },
+      ];
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Settings</h2>
+              <button className="icon-btn" onClick={onClose}>{Icons.close}</button>
+            </div>
+
+            <div className="settings-body">
+              <div className="settings-tabs">
+                {tabs.map(t => (
+                  <button
+                    key={t.id}
+                    className={`settings-tab${tab === t.id ? ' active' : ''}`}
+                    onClick={() => setTab(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="settings-content">
+                {tab === 'execution' && (
+                  <div className="setting-group">
+                    <label>API Provider</label>
+                    <select
+                      value={local.apiProvider}
+                      onChange={e => setLocal({ ...local, apiProvider: e.target.value })}
+                    >
+                      <option value="anthropic">Anthropic</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="llamacpp">Llama.cpp Server (Local)</option>
+                      <option value="ollama">Ollama (Local)</option>
+                    </select>
+
+                    {local.apiProvider === 'llamacpp' ? (
+                      <>
+                        <label>Server URL</label>
+                        <input
+                          type="text"
+                          placeholder="http://localhost:8080"
+                          value={local.llamaCppUrl || ''}
+                          onChange={e => setLocal({ ...local, llamaCppUrl: e.target.value })}
+                        />
+                        <label>API Key (optional)</label>
+                        <input
+                          type="password"
+                          placeholder="Leave blank if no auth required"
+                          value={local.llamaCppKey || ''}
+                          onChange={e => setLocal({ ...local, llamaCppKey: e.target.value })}
+                        />
+                        <label>Model</label>
+                        <input
+                          type="text"
+                          placeholder="e.g., llama3.2, mistral"
+                          value={local.model || ''}
+                          onChange={e => setLocal({ ...local, model: e.target.value })}
+                        />
+                      </>
+                    ) : local.apiProvider === 'ollama' ? (
+                      <>
+                        <label>Server URL</label>
+                        <input
+                          type="text"
+                          placeholder="http://localhost:11434"
+                          value={local.ollamaUrl || ''}
+                          onChange={e => setLocal({ ...local, ollamaUrl: e.target.value })}
+                        />
+                        <label>Model</label>
+                        <input
+                          type="text"
+                          placeholder="e.g., llama3.2, mistral, codellama"
+                          value={local.model || ''}
+                          onChange={e => setLocal({ ...local, model: e.target.value })}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <label>API Key</label>
+                        <input
+                          type="password"
+                          placeholder={local.apiProvider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                          value={local.apiKey || ''}
+                          onChange={e => setLocal({ ...local, apiKey: e.target.value })}
+                        />
+
+                        <label>Model</label>
+                        <select
+                          value={local.model}
+                          onChange={e => setLocal({ ...local, model: e.target.value })}
+                        >
+                          {local.apiProvider === 'anthropic' ? (
+                            <>
+                              <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                              <option value="claude-opus-4-20250514">Claude Opus 4</option>
+                              <option value="claude-haiku-3-5-20241022">Claude Haiku 3.5</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="gpt-4o">GPT-4o</option>
+                              <option value="gpt-4o-mini">GPT-4o Mini</option>
+                              <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                            </>
+                          )}
+                        </select>
+                      </>
+                    )}
+
+                    <label>Max Tokens</label>
+                    <input
+                      type="number"
+                      value={local.maxTokens || 8192}
+                      onChange={e => setLocal({ ...local, maxTokens: parseInt(e.target.value) })}
+                    />
+                  </div>
+                )}
+
+                {tab === 'agents' && (
+                  <div className="setting-group">
+                    <p className="text-muted">Agent detection requires local MCP servers. Configure your agents in the Agents tab.</p>
+                    <button className="btn btn-secondary" onClick={() => { }}>Refresh Agents</button>
+                  </div>
+                )}
+
+                {tab === 'skills' && (
+                  <SkillsSettings onAddSkill={(skill) => { }} />
+                )}
+
+                {tab === 'design-systems' && (
+                  <DesignSystemsSettings />
+                )}
+
+                {tab === 'appearance' && (
+                  <div className="setting-group">
+                    <label>Accent Color</label>
+                    <div className="color-picker">
+                      {['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444'].map(color => (
+                        <button
+                          key={color}
+                          className={`color-swatch${local.accentColor === color ? ' active' : ''}`}
+                          style={{ backgroundColor: color }}
+                          onClick={() => setLocal({ ...local, accentColor: color })}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              {saved && <span className="save-indicator">✓ Saved</span>}
+              <button className="btn btn-primary" onClick={handleSave}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function SkillsSettings({ onAddSkill }) {
+      const [skills, setSkills] = useState([]);
+      const [newName, setNewName] = useState('');
+      const [newBody, setNewBody] = useState('');
+
+      useEffect(() => {
+        API.get('/skills').then(data => setSkills(data.skills || [])).catch(() => { });
+      }, []);
+
+      const handleAdd = async () => {
+        if (!newName || !newBody) return;
+        try {
+          await API.post('/skills/import', {
+            name: newName,
+            description: `Custom skill: ${newName}`,
+            body: newBody,
+            triggers: []
+          });
+          setNewName('');
+          setNewBody('');
+          const data = await API.get('/skills');
+          setSkills(data.skills || []);
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      const handleDelete = async (id) => {
+        if (!confirm('Delete this skill?')) return;
+        try {
+          await API.del(`/skills/${id}`);
+          setSkills(skills.filter(s => s.id !== id));
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      return (
+        <div>
+          <div className="setting-group">
+            <h3>Add New Skill</h3>
+            <input
+              placeholder="Skill name"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              className="mb-2"
+            />
+            <textarea
+              placeholder="Skill instructions (markdown)"
+              value={newBody}
+              onChange={e => setNewBody(e.target.value)}
+              rows={6}
+              className="mb-2"
+            />
+            <button className="btn btn-primary" onClick={handleAdd}>Add Skill</button>
+          </div>
+
+          {skills.length > 0 && (
+            <div className="setting-group">
+              <h3>Installed Skills</h3>
+              {skills.map(skill => (
+                <div key={skill.id} className="skill-item">
+                  <div>
+                    <strong>{skill.name}</strong>
+                    <p className="text-muted">{skill.description}</p>
+                  </div>
+                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(skill.id)}>
+                    {Icons.trash}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function DesignSystemsSettings() {
+      const [systems, setSystems] = useState([]);
+
+      useEffect(() => {
+        API.get('/design-systems').then(data => setSystems(data.designSystems || [])).catch(() => { });
+      }, []);
+
+      return (
+        <div>
+          {systems.length === 0 ? (
+            <p className="text-muted">No design systems installed. Add DESIGN.md files to the design-systems/ folder.</p>
+          ) : (
+            <div className="setting-group">
+              {systems.map(sys => (
+                <div key={sys.id} className="skill-item">
+                  <strong>{sys.name}</strong>
+                  <p className="text-muted">{sys.description}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ============================================================
+    // CHAT COMPOSER
+    // ============================================================
+    function ChatComposer({ streaming, sendDisabled, onSend, onStop, skills }) {
+      const [text, setText] = useState('');
+      const textareaRef = useRef(null);
+
+      const handleSubmit = () => {
+        if (!text.trim() || sendDisabled) return;
+        onSend(text.trim());
+        setText('');
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      };
+
+      const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSubmit();
+        }
+      };
+
+      const handleInput = () => {
+        const el = textareaRef.current;
+        if (el) {
+          el.style.height = 'auto';
+          el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+        }
+      };
+
+      return (
+        <div className="chat-composer">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onInput={handleInput}
+            placeholder={streaming ? 'Agent is working...' : 'Describe what you want to build...'}
+            disabled={streaming}
+            rows={1}
+          />
+          <div className="composer-actions">
+            {streaming ? (
+              <button className="btn btn-secondary" onClick={onStop}>
+                {Icons.stop} Stop
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                onClick={handleSubmit}
+                disabled={!text.trim() || sendDisabled}
+              >
+                {Icons.send} Send
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // CHAT PANE
+    // ============================================================
+    function ChatPane({ messages, streaming, sendDisabled, onSend, onStop, skills }) {
+      const [convListOpen, setConvListOpen] = useState(false);
+      const logRef = useRef(null);
+
+      useEffect(() => {
+        if (logRef.current) {
+          logRef.current.scrollTop = logRef.current.scrollHeight;
+        }
+      }, [messages]);
+
+      return (
+        <div className="chat-pane">
+          <div className="chat-header">
+            <button className="icon-btn" onClick={() => setConvListOpen(!convListOpen)}>
+              {Icons.history}
+            </button>
+            <button className="icon-btn" title="New conversation">
+              {Icons.plus}
+            </button>
+          </div>
+
+          <div className="chat-log" ref={logRef}>
+            {messages.length === 0 ? (
+              <div className="chat-empty">
+                <h3>What would you like to build?</h3>
+                <p>Describe your project and I'll generate the code for you.</p>
+                <div className="starter-prompts">
+                  {[
+                    { title: 'Landing Page', prompt: 'Build a modern landing page for a SaaS product with hero section, features, pricing, and footer' },
+                    { title: 'Dashboard', prompt: 'Create a analytics dashboard with charts, stats cards, and a data table' },
+                    { title: 'Todo App', prompt: 'Build a todo app with add, complete, delete, and filter functionality' },
+                  ].map((ex, i) => (
+                    <button
+                      key={i}
+                      className="starter-prompt"
+                      onClick={() => onSend(ex.prompt)}
+                    >
+                      <span>{ex.title}</span>
+                      <small>{ex.prompt.slice(0, 60)}...</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              messages.map((msg, i) => (
+                <div key={i} className={`message ${msg.role}`}>
+                  <div className="message-role">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
+                  <div className="message-content">{msg.content}</div>
+                </div>
+              ))
+            )}
+            {streaming && (
+              <div className="message assistant">
+                <div className="message-role">Assistant</div>
+                <div className="message-content streaming">
+                  <div className="typing-indicator">
+                    <span></span><span></span><span></span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <ChatComposer
+            streaming={streaming}
+            sendDisabled={sendDisabled}
+            onSend={onSend}
+            onStop={onStop}
+            skills={skills}
+          />
+        </div>
+      );
+    }
+
+    // PROJECT VIEW (main workspace)
+    // ============================================================
+    function ProjectView({ project, config, onBack }) {
+      const [messages, setMessages] = useState([]);
+      const [streaming, setStreaming] = useState(false);
+      const [artifactHtml, setArtifactHtml] = useState(null);
+      const [breakpoint, setBreakpoint] = useState('desktop');
+      const [selectedElement, setSelectedElement] = useState(null);
+      const [editMode, setEditMode] = useState(false);
+      const [tweakPrompt, setTweakPrompt] = useState('');
+      const [showTweakInput, setShowTweakInput] = useState(false);
+      const [timer, setTimer] = useState(0);
+      
+      const iframeRef = useRef(null);
+
+      useEffect(() => {
+        let interval;
+        if (streaming) {
+          setTimer(0);
+          interval = setInterval(() => setTimer(t => t + 1), 1000);
+        }
+        return () => clearInterval(interval);
+      }, [streaming]);
+
+      const attachEditListeners = (iframeDoc) => {
+        if (!iframeDoc) return;
+
+        // Add selection styles once
+        if (!iframeDoc.getElementById('od-selection-styles')) {
+          const style = iframeDoc.createElement('style');
+          style.id = 'od-selection-styles';
+          style.innerHTML = `
+            .od-hovered { outline: 2px dashed rgba(59, 130, 246, 0.8) !important; outline-offset: -2px !important; cursor: pointer !important; }
+            .od-selected { outline: 2px solid rgb(59, 130, 246) !important; outline-offset: -2px !important; }
+          `;
+          iframeDoc.head.appendChild(style);
+        }
+
+        const handleMouseOver = (e) => {
+          e.stopPropagation();
+          if (['html', 'body'].includes(e.target.tagName.toLowerCase())) return;
+          e.target.classList.add('od-hovered');
+        };
+
+        const handleMouseOut = (e) => {
+          e.target.classList.remove('od-hovered');
+        };
+
+        const handleClick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const target = e.target;
+          
+          if (['html', 'body'].includes(target.tagName.toLowerCase())) {
+            iframeDoc.querySelectorAll('.od-selected').forEach(el => el.classList.remove('od-selected'));
+            setSelectedElement(null);
+            return;
+          }
+          
+          iframeDoc.querySelectorAll('.od-selected').forEach(el => el.classList.remove('od-selected'));
+          target.classList.add('od-selected');
+          
+          const clone = target.cloneNode(true);
+          clone.classList.remove('od-selected', 'od-hovered');
+          if (clone.classList.length === 0) clone.removeAttribute('class');
+          
+          const fullDocClone = iframeDoc.documentElement.cloneNode(true);
+          fullDocClone.querySelectorAll('.od-selected, .od-hovered').forEach(el => {
+            el.classList.remove('od-selected', 'od-hovered');
+            if (el.classList.length === 0) el.removeAttribute('class');
+          });
+
+          setSelectedElement({
+            html: clone.outerHTML,
+            tagName: target.tagName.toLowerCase(),
+            classes: clone.className || '',
+            id: target.id || '',
+            parentTag: target.parentElement?.tagName?.toLowerCase() || '',
+            fullHtml: fullDocClone.outerHTML,
+            ref: target,
+            styles: {
+              fontFamily: target.style.fontFamily || '',
+              fontSize: target.style.fontSize ? target.style.fontSize.replace('px', '') : '',
+              fontWeight: target.style.fontWeight || '',
+              color: target.style.color || '',
+              textAlign: target.style.textAlign || '',
+              lineHeight: target.style.lineHeight || '',
+              letterSpacing: target.style.letterSpacing || '',
+              width: target.style.width || '',
+              height: target.style.height || '',
+              gap: target.style.gap || '',
+              flexDirection: target.style.flexDirection || '',
+              justifyContent: target.style.justifyContent || '',
+              alignItems: target.style.alignItems || '',
+              backgroundColor: target.style.backgroundColor || '',
+              paddingTop: target.style.paddingTop ? target.style.paddingTop.replace('px', '') : '',
+              paddingRight: target.style.paddingRight ? target.style.paddingRight.replace('px', '') : '',
+              paddingBottom: target.style.paddingBottom ? target.style.paddingBottom.replace('px', '') : '',
+              paddingLeft: target.style.paddingLeft ? target.style.paddingLeft.replace('px', '') : '',
+              marginTop: target.style.marginTop ? target.style.marginTop.replace('px', '') : '',
+              marginRight: target.style.marginRight ? target.style.marginRight.replace('px', '') : '',
+              marginBottom: target.style.marginBottom ? target.style.marginBottom.replace('px', '') : '',
+              marginLeft: target.style.marginLeft ? target.style.marginLeft.replace('px', '') : '',
+              borderWidth: target.style.borderWidth ? target.style.borderWidth.replace('px', '') : '',
+              borderColor: target.style.borderColor || '',
+              borderStyle: target.style.borderStyle || '',
+              borderRadius: target.style.borderRadius ? target.style.borderRadius.replace('px', '') : '',
+            }
+          });
+        };
+
+        iframeDoc.addEventListener('mouseover', handleMouseOver);
+        iframeDoc.addEventListener('mouseout', handleMouseOut);
+        iframeDoc.addEventListener('click', handleClick);
+      };
+
+      const removeEditListeners = (iframeDoc) => {
+        if (!iframeDoc) return;
+        const style = iframeDoc.getElementById('od-selection-styles');
+        if (style) style.remove();
+      };
+
+      useEffect(() => {
+        if (editMode && artifactHtml && iframeRef.current) {
+          const iframeDoc = iframeRef.current.contentDocument;
+          attachEditListeners(iframeDoc);
+        } else {
+          if (iframeRef.current) {
+            const iframeDoc = iframeRef.current.contentDocument;
+            removeEditListeners(iframeDoc);
+          }
+          if (!editMode) {
+            setSelectedElement(null);
+          }
+        }
+      }, [editMode, artifactHtml]);
+
+      const handleIframeLoad = () => {
+        // Selection listeners are attached via editMode useEffect
+      };
+
+      const handleUpdateStyle = (prop, value) => {
+        if (!selectedElement || !selectedElement.ref) return;
+        selectedElement.ref.style[prop] = value;
+        setSelectedElement({...selectedElement, styles: {...selectedElement.styles, [prop]: value}});
+        
+        const iframeDoc = iframeRef.current?.contentDocument;
+        if (iframeDoc) {
+          const fullDocClone = iframeDoc.documentElement.cloneNode(true);
+          fullDocClone.querySelectorAll('.od-selected, .od-hovered').forEach(el => {
+            el.classList.remove('od-selected', 'od-hovered');
+            if (el.classList.length === 0) el.removeAttribute('class');
+          });
+          setArtifactHtml(fullDocClone.outerHTML);
+        }
+      };
+
+      const handleSend = useCallback(async (text, elementContext = null) => {
+        const newMsgs = [...messages, { role: 'user', content: text }];
+        setMessages(newMsgs);
+        setStreaming(true);
+        if (!elementContext) setArtifactHtml(null);
+
+        try {
+          const payload = {
+            messages: newMsgs,
+            model: config.model,
+            maxTokens: config.maxTokens,
+            skillBody: '',
+          };
+
+          if (elementContext) {
+            payload.elementContext = elementContext;
+            payload.userInstruction = text;
+          }
+
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            setStreaming(false);
+            return;
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let fullResponseText = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'content' && parsed.delta) {
+                  fullResponseText += parsed.delta;
+                }
+              } catch {}
+            }
+          }
+
+          const artifactMatch = fullResponseText.match(/<artifact[^>]*>([\s\S]*?)<\/artifact>/);
+          if (artifactMatch) {
+            setArtifactHtml(artifactMatch[1]);
+          }
+          setStreaming(false);
+        } catch (err) {
+          setStreaming(false);
+        }
+      }, [messages, config]);
+
+      const mins = Math.floor(timer / 60);
+      const secs = timer % 60;
+      const timeStr = `${mins}m ${secs}s`;
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+          {/* Top Navbar */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid #e5e7eb', background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0-10 10"/></svg>
+                Open Design
+              </div>
+              <div style={{ color: '#9ca3af', cursor: 'pointer' }} onClick={onBack}>←</div>
+              <div style={{ fontWeight: '500' }}>{project.name}</div>
+              <div style={{ fontSize: '12px', color: '#6b7280', background: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>TARGETS Responsive web</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {artifactHtml && (
+                <button 
+                  onClick={() => {
+                    const blob = new Blob([artifactHtml], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${project.name.replace(/[^a-zA-Z0-9]/g, '_')}.html`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  style={{ padding: '6px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                  Download
+                </button>
+              )}
+              {artifactHtml && (
+                <button 
+                  onClick={async () => {
+                    try {
+                      await API.post(`/projects/${project.id}/files`, {
+                        filePath: 'index.html',
+                        content: artifactHtml
+                      });
+                      alert('Project saved!');
+                    } catch (err) {
+                      alert('Save failed: ' + err.message);
+                    }
+                  }}
+                  style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', background: '#ecfdf5', color: '#059669', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  Save to Project
+                </button>
+              )}
+              <button style={{ padding: '6px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', fontSize: '13px' }}>Present ⌄</button>
+              <button style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', background: '#000', color: '#fff', fontSize: '13px' }}>Share ⌄</button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            {/* Left Pane: Code & Chat */}
+            <div style={{ width: '300px', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e5e7eb', background: '#fff' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280' }}>+</button>
+                  <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280' }}>{'<'}</button>
+                </div>
+              </div>
+              <div style={{ flex: 1, overflow: 'auto', padding: '16px', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: '#374151', wordBreak: 'break-all' }}>
+                {artifactHtml || '<!-- No code generated yet -->'}
+              </div>
+              <div style={{ padding: '16px', borderTop: '1px solid #e5e7eb' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px', color: '#6b7280' }}>
+                  {streaming ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div className="spinner" style={{ width: '8px', height: '8px', border: '2px solid #e5e7eb', borderTopColor: '#000', borderRadius: '50%', animation: 'od-spin 1s linear infinite' }} />
+                      Generating... {timeStr}
+                    </div>
+                  ) : (
+                    <div>• Done {timeStr}</div>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <span style={{ cursor: 'pointer' }}>👍</span><span style={{ cursor: 'pointer' }}>👎</span>
+                  </div>
+                </div>
+                <ChatComposer streaming={streaming} sendDisabled={streaming} onSend={handleSend} onStop={() => setStreaming(false)} skills={[]} />
+              </div>
+            </div>
+
+            {/* Middle Pane: Preview */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f9fafb' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: '#fff', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
+                  <button style={{ border: 'none', background: 'transparent', fontWeight: 'bold', borderBottom: '2px solid #000', paddingBottom: '4px', cursor: 'pointer' }}>Preview</button>
+                  <button style={{ border: 'none', background: 'transparent', color: '#6b7280', cursor: 'pointer' }}>Source</button>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      onClick={() => { setShowTweakInput(!showTweakInput); setEditMode(false); setSelectedElement(null); }}
+                      style={{ border: 'none', background: showTweakInput ? '#fef3c7' : 'transparent', color: showTweakInput ? '#d97706' : '#6b7280', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: showTweakInput ? 'bold' : 'normal' }}
+                    >
+                      Tweaks
+                    </button>
+                    <button 
+                      onClick={() => { setEditMode(!editMode); setShowTweakInput(false); if (!editMode) setSelectedElement(null); }}
+                      style={{ border: 'none', background: editMode ? '#fef3c7' : 'transparent', color: editMode ? '#d97706' : '#6b7280', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: editMode ? 'bold' : 'normal' }}
+                    >
+                      Edit
+                    </button>
+                    <button 
+                      onClick={() => alert('Draw feature coming soon!')}
+                      style={{ border: 'none', background: 'transparent', color: '#6b7280', cursor: 'pointer' }}
+                    >
+                      Draw
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', borderLeft: '1px solid #e5e7eb', borderRight: '1px solid #e5e7eb', padding: '0 16px' }}>
+                    <button onClick={() => setBreakpoint('desktop')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: breakpoint === 'desktop' ? 'bold' : 'normal' }}>Desktop</button>
+                    <button onClick={() => setBreakpoint('tablet')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: breakpoint === 'tablet' ? 'bold' : 'normal' }}>Tablet</button>
+                    <button onClick={() => setBreakpoint('mobile')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: breakpoint === 'mobile' ? 'bold' : 'normal' }}>Mobile</button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280' }}>-</button>
+                    <span>100%</span>
+                    <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280' }}>+</button>
+                  </div>
+                </div>
+              </div>
+              {showTweakInput && (
+                <div style={{ padding: '12px 16px', background: '#fff', borderBottom: '1px solid #e5e7eb', display: 'flex', gap: '8px' }}>
+                  <input
+                    style={{ flex: 1, padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', outline: 'none' }}
+                    placeholder="Describe your tweak (e.g., 'Make the header blue', 'Add more spacing')"
+                    value={tweakPrompt}
+                    onChange={e => setTweakPrompt(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && tweakPrompt.trim()) { handleSend(tweakPrompt.trim()); setShowTweakInput(false); setTweakPrompt(''); } }}
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => { if (tweakPrompt.trim()) { handleSend(tweakPrompt.trim()); setShowTweakInput(false); setTweakPrompt(''); } }}
+                    disabled={!tweakPrompt.trim()}
+                    style={{ padding: '8px 16px', border: 'none', borderRadius: '6px', background: tweakPrompt.trim() ? '#000' : '#e5e7eb', color: tweakPrompt.trim() ? '#fff' : '#9ca3af', cursor: tweakPrompt.trim() ? 'pointer' : 'default', fontSize: '13px' }}
+                  >
+                    Apply
+                  </button>
+                </div>
+              )}
+              <div style={{ flex: 1, padding: '32px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', overflow: 'auto' }}>
+                {artifactHtml ? (
+                  <div style={{ background: '#fff', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', width: breakpoint === 'mobile' ? '375px' : breakpoint === 'tablet' ? '768px' : '100%', height: '100%', transition: 'width 0.3s' }}>
+                    <iframe ref={iframeRef} srcDoc={artifactHtml} style={{ width: '100%', height: '100%', border: 'none' }} onLoad={handleIframeLoad} />
+                  </div>
+                ) : (
+                  <div style={{ color: '#9ca3af', marginTop: '40px' }}>No preview available</div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Pane: Properties */}
+            <div style={{ width: '280px', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #e5e7eb', background: '#fff', fontSize: '11px', overflowY: 'auto' }}>
+              <div style={{ padding: '16px' }}>
+                
+                {!selectedElement ? (
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Page</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
+                       <div style={{ color: '#6b7280', flex: 1 }}>Background <input type="checkbox" /></div>
+                       <input type="text" style={{ flex: 1, padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} defaultValue="#FFFFFF" />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
+                       <div style={{ color: '#6b7280', flex: 1 }}>Font</div>
+                       <select style={{ flex: 1, padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }}>
+                         <option>Space Grotesk</option>
+                         <option>Inter</option>
+                         <option>Roboto</option>
+                       </select>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
+                       <div style={{ color: '#6b7280', flex: 1 }}>Base size</div>
+                       <div style={{ display: 'flex', flex: 1, border: '1px solid #e5e7eb', borderRadius: '4px', padding: '2px 4px' }}>
+                         <input style={{ width: '100%', border: 'none', outline: 'none' }} placeholder="16" />
+                         <span style={{ color: '#9ca3af' }}>px</span>
+                       </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                  {/* TYPOGRAPHY */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Typography</div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 2 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Font</div>
+                        <select style={{ width: '100%', padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.fontFamily || 'inherit'} onChange={e => handleUpdateStyle('fontFamily', e.target.value)}>
+                          <option value="inherit">inherit</option>
+                          <option value="sans-serif">sans-serif</option>
+                          <option value="serif">serif</option>
+                          <option value="monospace">monospace</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Size</div>
+                        <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '4px', padding: '2px 4px' }}>
+                          <input style={{ width: '100%', border: 'none', outline: 'none' }} value={selectedElement?.styles?.fontSize || ''} onChange={e => handleUpdateStyle('fontSize', e.target.value ? `${e.target.value}px` : '')} />
+                          <span style={{ color: '#9ca3af' }}>px</span>
+                        </div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Weight</div>
+                        <select style={{ width: '100%', padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.fontWeight || '--'} onChange={e => handleUpdateStyle('fontWeight', e.target.value)}>
+                          <option value="--">--</option>
+                          <option value="normal">normal</option>
+                          <option value="bold">bold</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Color</div>
+                        <input type="text" style={{ width: '100%', padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.color || ''} onChange={e => handleUpdateStyle('color', e.target.value)} placeholder="#000000" />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Align</div>
+                        <select style={{ width: '100%', padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.textAlign || '--'} onChange={e => handleUpdateStyle('textAlign', e.target.value)}>
+                          <option value="--">--</option>
+                          <option value="left">Left</option>
+                          <option value="center">Center</option>
+                          <option value="right">Right</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* LAYOUT */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Layout</div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Gap</div>
+                        <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '4px', padding: '2px 4px' }}>
+                          <input style={{ width: '100%', border: 'none', outline: 'none' }} value={selectedElement?.styles?.gap || ''} onChange={e => handleUpdateStyle('gap', e.target.value ? `${e.target.value}px` : '')} />
+                          <span style={{ color: '#9ca3af' }}>px</span>
+                        </div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Direction</div>
+                        <select style={{ width: '100%', padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.flexDirection || '--'} onChange={e => handleUpdateStyle('flexDirection', e.target.value)}>
+                          <option value="--">--</option>
+                          <option value="row">Row</option>
+                          <option value="column">Col</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Justify</div>
+                        <select style={{ width: '100%', padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.justifyContent || '--'} onChange={e => handleUpdateStyle('justifyContent', e.target.value)}>
+                          <option value="--">--</option>
+                          <option value="flex-start">Start</option>
+                          <option value="center">Center</option>
+                          <option value="space-between">Space</option>
+                        </select>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Align</div>
+                        <select style={{ width: '100%', padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.alignItems || '--'} onChange={e => handleUpdateStyle('alignItems', e.target.value)}>
+                          <option value="--">--</option>
+                          <option value="flex-start">Start</option>
+                          <option value="center">Center</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SIZE */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Size</div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Width</div>
+                        <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '4px', padding: '2px 4px' }}>
+                          <input style={{ width: '100%', border: 'none', outline: 'none' }} value={selectedElement?.styles?.width || ''} onChange={e => handleUpdateStyle('width', e.target.value ? `${e.target.value}px` : '')} />
+                          <span style={{ color: '#9ca3af' }}>px</span>
+                        </div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Height</div>
+                        <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '4px', padding: '2px 4px' }}>
+                          <input style={{ width: '100%', border: 'none', outline: 'none' }} value={selectedElement?.styles?.height || ''} onChange={e => handleUpdateStyle('height', e.target.value ? `${e.target.value}px` : '')} />
+                          <span style={{ color: '#9ca3af' }}>px</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FILL */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                       <div style={{ fontWeight: 'bold', color: '#9ca3af', letterSpacing: '1px', textTransform: 'uppercase', width: '60px' }}>Fill</div>
+                       <input type="text" style={{ flex: 1, padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.backgroundColor || ''} onChange={e => handleUpdateStyle('backgroundColor', e.target.value)} placeholder="#FFFFFF" />
+                    </div>
+                  </div>
+                  
+                  {/* PADDING */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Padding</div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', width: '12px' }}>T</span>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.paddingTop || ''} onChange={e => handleUpdateStyle('paddingTop', e.target.value ? `${e.target.value}px` : '')} />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', width: '12px' }}>R</span>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.paddingRight || ''} onChange={e => handleUpdateStyle('paddingRight', e.target.value ? `${e.target.value}px` : '')} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', width: '12px' }}>B</span>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.paddingBottom || ''} onChange={e => handleUpdateStyle('paddingBottom', e.target.value ? `${e.target.value}px` : '')} />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', width: '12px' }}>L</span>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.paddingLeft || ''} onChange={e => handleUpdateStyle('paddingLeft', e.target.value ? `${e.target.value}px` : '')} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* MARGIN */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Margin</div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', width: '12px' }}>T</span>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.marginTop || ''} onChange={e => handleUpdateStyle('marginTop', e.target.value ? `${e.target.value}px` : '')} />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', width: '12px' }}>R</span>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.marginRight || ''} onChange={e => handleUpdateStyle('marginRight', e.target.value ? `${e.target.value}px` : '')} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', width: '12px' }}>B</span>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.marginBottom || ''} onChange={e => handleUpdateStyle('marginBottom', e.target.value ? `${e.target.value}px` : '')} />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', width: '12px' }}>L</span>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.marginLeft || ''} onChange={e => handleUpdateStyle('marginLeft', e.target.value ? `${e.target.value}px` : '')} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BORDER */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Border</div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Color</div>
+                        <input type="text" style={{ width: '100%', padding: '4px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.borderColor || ''} onChange={e => handleUpdateStyle('borderColor', e.target.value)} placeholder="#000000" />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Width</div>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.borderWidth || ''} onChange={e => handleUpdateStyle('borderWidth', e.target.value ? `${e.target.value}px` : '')} placeholder="px" />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                       <div style={{ flex: 1 }}>
+                        <div style={{ color: '#6b7280', marginBottom: '4px' }}>Radius</div>
+                        <input style={{ width: '100%', padding: '2px', border: '1px solid #e5e7eb', borderRadius: '4px' }} value={selectedElement?.styles?.borderRadius || ''} onChange={e => handleUpdateStyle('borderRadius', e.target.value ? `${e.target.value}px` : '')} placeholder="px" />
+                      </div>
+                    </div>
+                  </div>
+                  </>
+                )}
+
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // ENTRY VIEW (project list)
+    // ============================================================
+    function EntryView({ onOpenProject, onCreateProject, onSettings }) {
+      const [projects, setProjects] = useState([]);
+      const [showNewProject, setShowNewProject] = useState(false);
+      const [newName, setNewName] = useState('');
+
+      console.log('=== EntryView Mounted ===');
+      console.log('onOpenProject type:', typeof onOpenProject);
+      console.log('onSettings type:', typeof onSettings);
+
+      useEffect(() => {
+        console.log('EntryView: Fetching projects...');
+        API.get('/projects').then(data => {
+          console.log('EntryView: Projects loaded:', data.projects);
+          setProjects(data.projects || []);
+        }).catch(err => {
+          console.error('EntryView: Failed to load projects:', err);
+        });
+      }, []);
+
+      const handleCreate = async () => {
+        const trimmed = newName?.trim();
+        if (!trimmed) {
+          return;
+        }
+
+        try {
+          const data = await API.post('/projects', { name: trimmed });
+          
+          // Close modal and reset
+          setNewName('');
+          setShowNewProject(false);
+          
+          // Refresh project list and auto-open the new project
+          setProjects(prev => [data.project, ...prev]);
+          onOpenProject(data.project);
+        } catch (err) {
+          alert('Error creating project: ' + err.message);
+        }
+      };
+
+      const handleDelete = async (id, e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this project?')) return;
+        try {
+          await API.del(`/projects/${id}`);
+          setProjects(projects.filter(p => p.id !== id));
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      return (
+        <div className="app">
+          {/* Top Bar */}
+          <div className="topbar">
+            <div className="topbar-left">
+              <h1 className="project-title">Open Design Lite</h1>
+            </div>
+            <div className="topbar-right">
+              <button className="icon-btn" onClick={() => { console.log('=== Plus button clicked ==='); setShowNewProject(true); }} title="New Project">
+                {Icons.plus}
+              </button>
+              <button className="icon-btn" onClick={() => { console.log('=== Settings button clicked ==='); onSettings(); }} title="Settings">
+                {Icons.settings}
+              </button>
+            </div>
+          </div>
+
+          {/* Projects Grid */}
+          <div className="entry-view">
+            <h2>Your Projects</h2>
+
+            {projects.length === 0 ? (
+              <div className="empty-state">
+                <p>No projects yet. Create one to get started!</p>
+                <button className="btn btn-primary" onClick={() => setShowNewProject(true)}>
+                  {Icons.plus} New Project
+                </button>
+              </div>
+            ) : (
+              <div className="projects-grid">
+                {projects.map(project => (
+                  <div
+                    key={project.id}
+                    className="project-card"
+                    onClick={() => onOpenProject(project)}
+                  >
+                    <div className="project-card-content">
+                      <h3>{project.name}</h3>
+                      <p className="project-card-meta">
+                        {new Date(project.updatedAt).toLocaleDateString()}
+                        {project.skillId && ' · with skill'}
+                      </p>
+                    </div>
+                    <button
+                      className="icon-btn project-card-delete"
+                      onClick={(e) => handleDelete(project.id, e)}
+                      title="Delete"
+                    >
+                      {Icons.trash}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* New Project Modal */}
+          {showNewProject && (
+            <div className="modal-overlay" onClick={() => setShowNewProject(false)}>
+              <div className="modal" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h2>New Project</h2>
+                  <button className="icon-btn" onClick={() => setShowNewProject(false)}>{Icons.close}</button>
+                </div>
+                <div className="setting-group">
+                  <label>Project Name</label>
+                  <input
+                    id="project-name-input"
+                    placeholder="My Awesome Project"
+                    value={newName}
+                    onChange={function (e) { console.log('INPUT CHANGE:', e.target.value); setNewName(e.target.value); }}
+                    onKeyDown={function (e) { if (e.key === 'Enter') handleCreate(); }}
+                    autoFocus
+                  />
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-primary" onClick={handleCreate}>Create</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ============================================================
+    // APP ROOT
+    // ============================================================
+    function App() {
+      const [config, setConfig] = useState({
+        apiKey: '', apiProvider: 'anthropic', model: 'claude-sonnet-4-20250514',
+        maxTokens: 8192, theme: 'light', accentColor: '#3b82f6',
+        chatPanelWidth: 460, onboardingCompleted: false
+      });
+      const [activeProject, setActiveProject] = useState(null);
+      const [settingsOpen, setSettingsOpen] = useState(false);
+
+      useEffect(() => {
+        // Load config
+        API.get('/settings').then(data => setConfig(data)).catch(() => { });
+      }, []);
+
+      const handleSaveSettings = (newConfig) => {
+        API.post('/settings', newConfig).then((saved) => {
+          setConfig(saved);
+          setSettingsOpen(false);
+        }).catch(() => { });
+      };
+
+      if (!activeProject) {
+        return (
+          <>
+            <EntryView
+              onOpenProject={setActiveProject}
+              onSettings={() => setSettingsOpen(true)}
+            />
+            {settingsOpen && (
+              <SettingsDialog
+                config={config}
+                onClose={() => setSettingsOpen(false)}
+                onSave={handleSaveSettings}
+              />
+            )}
+          </>
+        );
+      }
+
+      return (
+        <div>
+          <ProjectView
+            project={activeProject}
+            config={config}
+            onBack={() => setActiveProject(null)}
+          />
+          {settingsOpen && (
+            <SettingsDialog
+              config={config}
+              onClose={() => setSettingsOpen(false)}
+              onSave={handleSaveSettings}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // ============================================================
+    // ERROR BOUNDARY
+    // ============================================================
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div style={{ padding: 40, fontFamily: 'sans-serif' }}>
+              <h1 style={{ color: 'red' }}>⚠️ Something went wrong</h1>
+              <pre style={{ background: '#fee', padding: 16, borderRadius: 8 }}>{this.state.error?.message}</pre>
+              <p style={{ marginTop: 16 }}>Check the browser console (F12) for details.</p>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    // ============================================================
+    // MOUNT
+    // ============================================================
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ErrorBoundary><App /></ErrorBoundary>);
+  </script>
+</body>
+
+</html>

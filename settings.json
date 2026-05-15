@@ -1,0 +1,16 @@
+{
+  "apiKey": "",
+  "apiProvider": "llamacpp",
+  "model": "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+  "maxTokens": 65000,
+  "theme": "light",
+  "accentColor": "#3b82f6",
+  "agentId": null,
+  "designSystemId": null,
+  "defaultProjectLocation": "",
+  "autoSave": true,
+  "chatPanelWidth": 460,
+  "onboardingCompleted": false,
+  "llamaCppKey": "",
+  "llamaCppUrl": "http://localhost:8080"
+}
