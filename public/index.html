@@ -855,10 +855,13 @@
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f9fafb' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: '#fff', borderBottom: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
-                  <button style={{ border: 'none', background: 'transparent', fontWeight: 'bold', borderBottom: '2px solid #000', paddingBottom: '4px', cursor: 'pointer' }}>Preview</button>
                   <button 
-                    onClick={() => setShowSource(!showSource)}
-                    style={{ border: 'none', background: 'transparent', color: showSource ? '#000' : '#6b7280', cursor: 'pointer', fontWeight: showSource ? 'bold' : 'normal' }}
+                    onClick={() => { setShowSource(false); }}
+                    style={{ border: 'none', background: 'transparent', color: !showSource ? '#000' : '#6b7280', cursor: 'pointer', fontWeight: !showSource ? 'bold' : 'normal', borderBottom: !showSource ? '2px solid #000' : 'none', paddingBottom: '4px' }}
+                  >Preview</button>
+                  <button 
+                    onClick={() => { setShowSource(true); }}
+                    style={{ border: 'none', background: 'transparent', color: showSource ? '#000' : '#6b7280', cursor: 'pointer', fontWeight: showSource ? 'bold' : 'normal', borderBottom: showSource ? '2px solid #000' : 'none', paddingBottom: '4px' }}
                   >Source</button>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px' }}>
@@ -914,12 +917,22 @@
                 </div>
               )}
               <div style={{ flex: 1, padding: '32px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', overflow: 'auto' }}>
-                {artifactHtml ? (
-                  <div style={{ background: '#fff', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', width: breakpoint === 'mobile' ? '375px' : breakpoint === 'tablet' ? '768px' : '100%', height: '100%', transition: 'width 0.3s' }}>
-                    <iframe ref={iframeRef} srcDoc={artifactHtml} style={{ width: '100%', height: '100%', border: 'none' }} onLoad={handleIframeLoad} />
-                  </div>
+                {showSource ? (
+                  artifactHtml ? (
+                    <div style={{ background: '#fff', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', width: breakpoint === 'mobile' ? '375px' : breakpoint === 'tablet' ? '768px' : '100%', height: '100%', overflow: 'auto', padding: '24px' }}>
+                      <pre style={{ margin: 0, fontSize: '12px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: '#374151', lineHeight: '1.6' }}>{artifactHtml}</pre>
+                    </div>
+                  ) : (
+                    <div style={{ color: '#9ca3af', marginTop: '40px' }}>No source code available</div>
+                  )
                 ) : (
-                  <div style={{ color: '#9ca3af', marginTop: '40px' }}>No preview available</div>
+                  artifactHtml ? (
+                    <div style={{ background: '#fff', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', width: breakpoint === 'mobile' ? '375px' : breakpoint === 'tablet' ? '768px' : '100%', height: '100%', transition: 'width 0.3s' }}>
+                      <iframe ref={iframeRef} srcDoc={artifactHtml} style={{ width: '100%', height: '100%', border: 'none' }} onLoad={handleIframeLoad} />
+                    </div>
+                  ) : (
+                    <div style={{ color: '#9ca3af', marginTop: '40px' }}>No preview available</div>
+                  )
                 )}
               </div>
             </div>
