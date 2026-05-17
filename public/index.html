@@ -535,7 +535,12 @@
       const [showSource, setShowSource] = useState(true);
       const [timer, setTimer] = useState(0);
       const [saveToast, setSaveToast] = useState(null); // { message, type }
+      const [sourceEditValue, setSourceEditValue] = useState(''); // For editable source mode
+      const [highlightedLines, setHighlightedLines] = useState([]); // Line numbers to highlight
       const iframeRef = useRef(null);
+      const textareaRef = useRef(null);
+      const preRef = useRef(null);
+      let elementIdCounter = 0;
 
       // Load existing project code on mount
       useEffect(() => {
@@ -543,10 +548,18 @@
           .then(data => {
             if (data.content) {
               setArtifactHtml(data.content);
+              setSourceEditValue(data.content);
             }
           })
           .catch(() => {});
       }, [project.id]);
+
+      // Sync source edit value when artifact changes (from AI generation, etc.)
+      useEffect(() => {
+        if (artifactHtml && !sourceEditValue) {
+          setSourceEditValue(artifactHtml);
+        }
+      }, [artifactHtml]);
 
       // Timer for streaming duration
       useEffect(() => {
@@ -578,6 +591,17 @@
             .od-selected { outline: 2px solid rgb(59, 130, 246) !important; outline-offset: -2px !important; }
           `;
           iframeDoc.head.appendChild(style);
+        }
+
+        // Add data-od-id attributes to all elements for source mapping
+        if (!iframeDoc.getElementById('od-id-attributes')) {
+          const allElements = iframeDoc.querySelectorAll('*');
+          allElements.forEach(el => {
+            if (!el.hasAttribute('data-od-id')) {
+              el.setAttribute('data-od-id', `od-${++elementIdCounter}`);
+            }
+          });
+          iframeDoc.getElementById('od-selection-styles').insertAdjacentHTML('afterend', '<style id="od-id-attributes">[data-od-id] { position: relative; }</style>');
         }
 
         const handleMouseOver = (e) => {
@@ -622,6 +646,7 @@
             parentTag: target.parentElement?.tagName?.toLowerCase() || '',
             fullHtml: fullDocClone.outerHTML,
             ref: target,
+            odId: target.getAttribute('data-od-id') || '',
             styles: {
               fontFamily: target.style.fontFamily || '',
               fontSize: target.style.fontSize ? target.style.fontSize.replace('px', '') : '',
@@ -681,6 +706,136 @@
 
       const handleIframeLoad = () => {
         // Selection listeners are attached via editMode useEffect
+        // Also re-attach data-od-id attributes in case iframe was reloaded
+        if (editMode && iframeRef.current) {
+          const iframeDoc = iframeRef.current.contentDocument;
+          if (iframeDoc) {
+            // Check if elements already have data-od-id, if not add them
+            const hasIds = iframeDoc.querySelector('[data-od-id]');
+            if (!hasIds) {
+              const allElements = iframeDoc.querySelectorAll('*');
+              allElements.forEach(el => {
+                if (!el.hasAttribute('data-od-id')) {
+                  el.setAttribute('data-od-id', `od-${++elementIdCounter}`);
+                }
+              });
+            }
+          }
+        }
+      };
+
+      // Find line numbers in source that contain a given element's HTML
+      const findElementLines = (sourceCode, elementInfo) => {
+        if (!elementInfo || !sourceCode) return [];
+        
+        const lines = sourceCode.split('\n');
+        const foundLines = [];
+        
+        // Try to find the element by its tag name and attributes
+        const tagPattern = elementInfo.tagName;
+        const idAttr = elementInfo.id ? `\\s+id=["']${elementInfo.id}["']` : '';
+        const classAttr = elementInfo.classes ? `\\s+class=["'][^"']*${elementInfo.classes.split(' ')[0]}[^"']*["']` : '';
+        
+        const regexPattern = `<${tagPattern}${idAttr}${classAttr}`;
+        const regex = new RegExp(regexPattern, 'i');
+        
+        lines.forEach((line, index) => {
+          if (regex.test(line.trim())) {
+            foundLines.push(index);
+          }
+        });
+        
+        // If no exact match, try finding by the element's HTML content
+        if (foundLines.length === 0 && elementInfo.html) {
+          const htmlSearch = elementInfo.html.substring(0, 50); // First 50 chars of element
+          lines.forEach((line, index) => {
+            if (line.includes(htmlSearch)) {
+              foundLines.push(index);
+            }
+          });
+        }
+        
+        return foundLines.length > 0 ? foundLines : [0];
+      };
+
+      // Update highlighted lines when selected element changes
+      useEffect(() => {
+        if (showSource && selectedElement && sourceEditValue) {
+          const lines = findElementLines(sourceEditValue, selectedElement);
+          setHighlightedLines(lines);
+        } else {
+          setHighlightedLines([]);
+        }
+      }, [selectedElement, showSource, sourceEditValue]);
+
+      // Handle source code changes and sync back to artifact
+      let sourceChangeTimeout = null;
+      const handleSourceChange = (newCode) => {
+        setSourceEditValue(newCode);
+        
+        // Debounced sync to preview and right panel
+        if (sourceChangeTimeout) clearTimeout(sourceChangeTimeout);
+        sourceChangeTimeout = setTimeout(() => {
+          setArtifactHtml(newCode);
+          
+          // If an element is selected, try to re-parse its styles from the new code
+          if (selectedElement && selectedElement.odId) {
+            const iframeDoc = iframeRef.current?.contentDocument;
+            if (iframeDoc) {
+              // Reload iframe with new code
+              iframeRef.current.srcDoc = newCode;
+              
+              // Find the element in the new DOM and update its ref
+              const newEl = iframeDoc.querySelector(`[data-od-id="${selectedElement.odId}"]`);
+              if (newEl) {
+                const clone = newEl.cloneNode(true);
+                clone.classList.remove('od-selected', 'od-hovered');
+                if (clone.classList.length === 0) clone.removeAttribute('class');
+                
+                const fullDocClone = iframeDoc.documentElement.cloneNode(true);
+                fullDocClone.querySelectorAll('.od-selected, .od-hovered').forEach(el => {
+                  el.classList.remove('od-selected', 'od-hovered');
+                  if (el.classList.length === 0) el.removeAttribute('class');
+                });
+
+                setSelectedElement({
+                  ...selectedElement,
+                  html: clone.outerHTML,
+                  fullHtml: fullDocClone.outerHTML,
+                  ref: newEl,
+                  styles: {
+                    fontFamily: newEl.style.fontFamily || '',
+                    fontSize: newEl.style.fontSize ? newEl.style.fontSize.replace('px', '') : '',
+                    fontWeight: newEl.style.fontWeight || '',
+                    color: newEl.style.color || '',
+                    textAlign: newEl.style.textAlign || '',
+                    lineHeight: newEl.style.lineHeight || '',
+                    letterSpacing: newEl.style.letterSpacing || '',
+                    width: newEl.style.width || '',
+                    height: newEl.style.height || '',
+                    gap: newEl.style.gap || '',
+                    flexDirection: newEl.style.flexDirection || '',
+                    justifyContent: newEl.style.justifyContent || '',
+                    alignItems: newEl.style.alignItems || '',
+                    backgroundColor: newEl.style.backgroundColor || '',
+                    paddingTop: newEl.style.paddingTop ? newEl.style.paddingTop.replace('px', '') : '',
+                    paddingRight: newEl.style.paddingRight ? newEl.style.paddingRight.replace('px', '') : '',
+                    paddingBottom: newEl.style.paddingBottom ? newEl.style.paddingBottom.replace('px', '') : '',
+                    paddingLeft: newEl.style.paddingLeft ? newEl.style.paddingLeft.replace('px', '') : '',
+                    marginTop: newEl.style.marginTop ? newEl.style.marginTop.replace('px', '') : '',
+                    marginRight: newEl.style.marginRight ? newEl.style.marginRight.replace('px', '') : '',
+                    marginBottom: newEl.style.marginBottom ? newEl.style.marginBottom.replace('px', '') : '',
+                    marginLeft: newEl.style.marginLeft ? newEl.style.marginLeft.replace('px', '') : '',
+                    borderWidth: newEl.style.borderWidth ? newEl.style.borderWidth.replace('px', '') : '',
+                    borderColor: newEl.style.borderColor || '',
+                    borderStyle: newEl.style.borderStyle || '',
+                    borderRadius: newEl.style.borderRadius ? newEl.style.borderRadius.replace('px', '') : '',
+                  }
+                });
+              }
+            }
+          }
+        }, 300);
       };
 
       const handleUpdateStyle = (prop, value) => {
@@ -923,29 +1078,111 @@
               )}
               <div style={{ flex: 1, padding: '32px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', overflow: 'auto' }}>
                 {showSource ? (
-                  artifactHtml ? (
-                    <div style={{ background: '#fff', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', width: breakpoint === 'mobile' ? '375px' : breakpoint === 'tablet' ? '768px' : '100%', height: '100%', overflow: 'auto', padding: '24px', position: 'relative' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', fontSize: '12px', fontFamily: 'monospace', lineHeight: '1.6', userSelect: 'none' }}>
-                        {/* Line numbers */}
+                  sourceEditValue ? (
+                    <div style={{ 
+                      background: '#1e1e1e', 
+                      width: '100%', 
+                      height: '100%', 
+                      overflow: 'hidden',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+                      fontSize: '13px'
+                    }}>
+                      {/* Source editor with line numbers */}
+                      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+                        {/* Line numbers gutter */}
                         <div style={{ 
-                          padding: '4px 8px 4px 0', 
-                          textAlign: 'right',
-                          color: '#9ca3af',
-                          borderRight: '1px solid #e5e7eb',
-                          marginRight: '8px'
+                          width: '50px', 
+                          minWidth: '50px',
+                          background: '#252526', 
+                          color: '#858585', 
+                          textAlign: 'right', 
+                          paddingRight: '12px',
+                          paddingTop: '16px',
+                          userSelect: 'none',
+                          borderRight: '1px solid #3c3c3c',
+                          overflow: 'hidden'
                         }}>
-                          {artifactHtml.split('\n').map((_, i) => (
-                            <div key={i} style={{ height: '20px' }}>{i + 1}</div>
+                          {sourceEditValue.split('\n').map((_, i) => (
+                            <div 
+                              key={i} 
+                              style={{ 
+                                height: '20px', 
+                                lineHeight: '20px',
+                                background: highlightedLines.includes(i) ? '#264f78' : 'transparent',
+                                color: highlightedLines.includes(i) ? '#dcdcaa' : '#858585'
+                              }}
+                            >
+                              {i + 1}
+                            </div>
                           ))}
                         </div>
-                        {/* Syntax highlighted code */}
-                        <div style={{ overflowX: 'auto' }}>
-                          <pre style={{ 
-                            margin: 0, 
-                            fontFamily: 'monospace', 
-                            whiteSpace: 'pre-wrap',
-                            tabSize: 2
-                          }} dangerouslySetInnerHTML={{ __html: Prism.highlight(artifactHtml, Prism.languages.html, 'html') }} />
+                        
+                        {/* Code editor area - textarea on top of highlighted pre */}
+                        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                          {/* Syntax highlighted background (non-editable) */}
+                          <pre 
+                            ref={preRef}
+                            style={{ 
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              margin: 0,
+                              padding: '16px',
+                              fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+                              fontSize: '13px',
+                              lineHeight: '20px',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-all',
+                              tabSize: 2,
+                              color: '#d4d4d4',
+                              pointerEvents: 'none',
+                              zIndex: 1,
+                              overflow: 'hidden'
+                            }}
+                            dangerouslySetInnerHTML={{ __html: Prism.highlight(sourceEditValue, Prism.languages.html, 'html').replace(/\t/g, '&nbsp;&nbsp;').replace(/\n/g, '<br/>') }}
+                          />
+                          
+                          {/* Editable textarea (transparent text, visible caret) */}
+                          <textarea
+                            ref={textareaRef}
+                            value={sourceEditValue}
+                            onChange={(e) => handleSourceChange(e.target.value)}
+                            onScroll={(e) => {
+                              if (preRef.current) {
+                                preRef.current.scrollTop = e.target.scrollTop;
+                                preRef.current.scrollLeft = e.target.scrollLeft;
+                              }
+                            }}
+                            style={{ 
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              margin: 0,
+                              padding: '16px',
+                              width: '100%',
+                              height: '100%',
+                              fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+                              fontSize: '13px',
+                              lineHeight: '20px',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-all',
+                              tabSize: 2,
+                              color: 'transparent',
+                              background: 'transparent',
+                              caretColor: '#aeafad',
+                              border: 'none',
+                              outline: 'none',
+                              resize: 'none',
+                              zIndex: 2,
+                              overflow: 'auto',
+                              cursor: 'text'
+                            }}
+                            spellCheck={false}
+                            autoCapitalize="off"
+                            autoComplete="off"
+                          />
                         </div>
                       </div>
                     </div>
@@ -1240,140 +1477,717 @@
     }
 
     // ============================================================
-    // ENTRY VIEW (project list)
+    // PLAN MODE PANEL (like Claude's Open Design)
     // ============================================================
-    function EntryView({ onOpenProject, onCreateProject, onSettings }) {
-      const [projects, setProjects] = useState([]);
-      const [showNewProject, setShowNewProject] = useState(false);
-      const [newName, setNewName] = useState('');
+    function DesignSystemDropdown({ systems, selectedId, onSelect, onClose }) {
+      const [search, setSearch] = useState('');
+      const [mode, setMode] = useState('single'); // 'single' or 'multi'
 
-      console.log('=== EntryView Mounted ===');
-      console.log('onOpenProject type:', typeof onOpenProject);
-      console.log('onSettings type:', typeof onSettings);
+      const filtered = systems.filter(s => 
+        s.name.toLowerCase().includes(search.toLowerCase()) ||
+        s.description.toLowerCase().includes(search.toLowerCase())
+      );
+
+      const systemIcons = {
+        'neutral-modern': '🟦',
+        'claude': '🟧',
+        'cohere': '🔵',
+        'elevenlabs': '🟣',
+        'huggingface': '🟢',
+        'freeform': '⚪'
+      };
+
+      return (
+        <div style={{ 
+          position: 'absolute', 
+          top: '100%', 
+          left: 0, 
+          right: 0,
+          background: '#fff', 
+          border: '1px solid #e5e7eb', 
+          borderRadius: '12px', 
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          zIndex: 1000,
+          maxHeight: '400px',
+          display: 'flex',
+          flexDirection: 'column',
+          marginTop: '4px'
+        }}>
+          {/* Search + Mode Toggle */}
+          <div style={{ padding: '12px', borderBottom: '1px solid #f3f4f6' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <svg style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                <input
+                  style={{ width: '100%', padding: '8px 12px 8px 32px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                  placeholder="Search design systems..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button 
+                  onClick={() => setMode('single')}
+                  style={{ 
+                    padding: '6px 12px', 
+                    borderRadius: '16px', 
+                    border: 'none', 
+                    background: mode === 'single' ? '#f97316' : '#f3f4f6',
+                    color: mode === 'single' ? '#fff' : '#6b7280',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Single
+                </button>
+                <button 
+                  onClick={() => setMode('multi')}
+                  style={{ 
+                    padding: '6px 12px', 
+                    borderRadius: '16px', 
+                    border: 'none', 
+                    background: mode === 'multi' ? '#f97316' : '#f3f4f6',
+                    color: mode === 'multi' ? '#fff' : '#6b7280',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Multi
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* System List */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+            {filtered.map(sys => (
+              <div
+                key={sys.id}
+                onClick={() => onSelect(sys)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  background: selectedId === sys.id ? '#fff7ed' : 'transparent',
+                  border: selectedId === sys.id ? '1px solid #fed7aa' : '1px solid transparent',
+                  marginBottom: '4px'
+                }}
+              >
+                <div style={{ 
+                  width: '32px', 
+                  height: '32px', 
+                  borderRadius: '6px', 
+                  background: 'linear-gradient(135deg, #f3f4f6 50%, #d1d5db 50%)',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  fontSize: '16px',
+                  flexShrink: 0
+                }}>
+                  {systemIcons[sys.id] || '🟦'}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontWeight: selectedId === sys.id ? '600' : '500', fontSize: '13px', color: '#111827' }}>
+                      {sys.name}
+                    </span>
+                    {sys.id === 'neutral-modern' && (
+                      <span style={{ fontSize: '9px', background: '#fef3c7', color: '#d97706', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>DEFAULT</span>
+                    )}
+                  </div>
+                  <p style={{ margin: 0, fontSize: '11px', color: '#6b7280', lineHeight: '1.3' }}>
+                    {sys.description}
+                  </p>
+                </div>
+                <input
+                  type={mode === 'single' ? 'radio' : 'checkbox'}
+                  checked={selectedId === sys.id}
+                  onChange={() => onSelect(sys)}
+                  style={{ width: '16px', height: '16px', accentColor: '#f97316' }}
+                />
+              </div>
+            ))}
+            
+            {/* Built-in Anthropic Design System */}
+            <div
+              onClick={() => onSelect({ id: 'claude', name: 'Claude (Anthropic)', description: 'Anthropic\'s AI assistant. Warm terracotta & cream palette.', isBuiltIn: true })}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                background: selectedId === 'claude' ? '#fff7ed' : 'transparent',
+                border: selectedId === 'claude' ? '1px solid #fed7aa' : '1px solid transparent',
+                marginTop: '4px'
+              }}
+            >
+              <div style={{ 
+                width: '32px', 
+                height: '32px', 
+                borderRadius: '6px', 
+                background: 'linear-gradient(135deg, #ff6b35 50%, #f7c59f 50%)',
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                fontSize: '14px'
+              }}>
+                🟠
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontWeight: selectedId === 'claude' ? '600' : '500', fontSize: '13px', color: '#111827' }}>
+                    Claude (Anthropic)
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: '11px', color: '#6b7280', lineHeight: '1.3' }}>
+                  Anthropic's AI assistant. Warm terracotta & cream palette.
+                </p>
+              </div>
+              <input
+                type={mode === 'single' ? 'radio' : 'checkbox'}
+                checked={selectedId === 'claude'}
+                onChange={() => onSelect({ id: 'claude', name: 'Claude (Anthropic)', description: "Anthropic's AI assistant. Warm terracotta & cream palette.", isBuiltIn: true })}
+                style={{ width: '16px', height: '16px', accentColor: '#f97316' }}
+              />
+            </div>
+
+            {filtered.length === 0 && (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+                No design systems found
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // ENTRY VIEW (Plan Mode + Recent Projects)
+    // ============================================================
+    function EntryView({ onOpenProject, onSettings }) {
+      const [projects, setProjects] = useState([]);
+      const [designSystems, setDesignSystems] = useState([]);
+      const [showDesignSystemDropdown, setShowDesignSystemDropdown] = useState(false);
+      const [projectName, setProjectName] = useState('');
+      const [selectedDesignSystem, setSelectedDesignSystem] = useState(null);
+      const [fidelity, setFidelity] = useState('high'); // 'wireframe' or 'high'
+      const [includeLanding, setIncludeLanding] = useState(false);
+      const [includeOSWidgets, setIncludeOSWidgets] = useState(false);
+      const [activeTab, setActiveTab] = useState('prototype'); // 'prototype', 'live-artifact', 'slide-deck'
 
       useEffect(() => {
-        console.log('EntryView: Fetching projects...');
         API.get('/projects').then(data => {
-          console.log('EntryView: Projects loaded:', data.projects);
           setProjects(data.projects || []);
-        }).catch(err => {
-          console.error('EntryView: Failed to load projects:', err);
-        });
+        }).catch(() => {});
+
+        API.get('/design-systems').then(data => {
+          const systems = data.designSystems || [];
+          // Set default to neutral-modern if available
+          const neutral = systems.find(s => s.id === 'neutral-modern');
+          setDesignSystems(systems);
+          setSelectedDesignSystem(neutral || null);
+        }).catch(() => {});
       }, []);
 
-      const handleCreate = async () => {
-        const trimmed = newName?.trim();
-        if (!trimmed) {
-          return;
-        }
+      const handleCreateProject = async () => {
+        if (!projectName.trim()) return;
 
         try {
-          const data = await API.post('/projects', { name: trimmed });
-          
-          // Close modal and reset
-          setNewName('');
-          setShowNewProject(false);
-          
-          // Refresh project list and auto-open the new project
-          setProjects(prev => [data.project, ...prev]);
-          onOpenProject(data.project);
+          // Determine which design system to use
+          let designSystemId = selectedDesignSystem?.id || null;
+          let designSystemBody = '';
+
+          if (selectedDesignSystem?.isBuiltIn && selectedDesignSystem.id === 'claude') {
+            // Use built-in Claude design system body
+            designSystemBody = `You are designing with the Claude (Anthropic) design system. Use warm terracotta (#ff6b35), cream (#f7c59f), and neutral grays. Typography should feel clean, approachable, and professional.`;
+          } else if (selectedDesignSystem && !selectedDesignSystem.isBuiltIn) {
+            // Load the design system body from API
+            try {
+              const dsData = await API.get(`/design-systems/${selectedDesignSystem.id}`);
+              designSystemBody = dsData.body || '';
+            } catch {}
+          }
+
+          // Create project with plan mode data
+          const manifest = await API.post('/projects', {
+            name: projectName.trim(),
+            designSystemId: designSystemId,
+            pendingPrompt: `Create a ${fidelity} fidelity ${includeLanding ? 'landing page with' : ''} ${designSystemId || 'custom'} design.`,
+            metadata: {
+              fidelity,
+              includeLanding,
+              includeOSWidgets,
+              selectedDesignSystem: selectedDesignSystem?.name || null,
+              mode: activeTab
+            }
+          });
+
+          // Reset form
+          setProjectName('');
+          setShowDesignSystemDropdown(false);
+
+          // Open the new project
+          onOpenProject(manifest.project);
         } catch (err) {
           alert('Error creating project: ' + err.message);
         }
       };
 
-      const handleDelete = async (id, e) => {
-        e.stopPropagation();
-        if (!confirm('Delete this project?')) return;
-        try {
-          await API.del(`/projects/${id}`);
-          setProjects(projects.filter(p => p.id !== id));
-        } catch (err) {
-          alert(err.message);
+      const handleSelectDesignSystem = (sys) => {
+        setSelectedDesignSystem(sys);
+        if (sys.isBuiltIn && sys.id === 'claude') {
+          // Built-in system - auto-select and close
+          setShowDesignSystemDropdown(false);
+        } else {
+          setShowDesignSystemDropdown(false);
         }
       };
 
+      const recentProjects = projects.slice(0, 5);
+
       return (
-        <div className="app">
-          {/* Top Bar */}
-          <div className="topbar">
-            <div className="topbar-left">
-              <h1 className="project-title">Open Design Lite</h1>
-            </div>
-            <div className="topbar-right">
-              <button className="icon-btn" onClick={() => { console.log('=== Plus button clicked ==='); setShowNewProject(true); }} title="New Project">
-                {Icons.plus}
+        <div style={{ display: 'flex', height: '100vh', background: '#fafafa', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+          {/* Left Panel - Plan Mode */}
+          <div style={{ width: '420px', background: '#fff', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #f3f4f6' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg, #f97316, #fb923c)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0-10 10"/></svg>
+                </div>
+                <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>Open Design</h1>
+              </div>
+
+              {/* Tabs */}
+              <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid #e5e7eb', marginBottom: '20px' }}>
+                {[
+                  { id: 'prototype', label: 'Prototype' },
+                  { id: 'live-artifact', label: 'Live artifact' },
+                  { id: 'slide-deck', label: 'Slide deck' },
+                  { id: 'from-template', label: 'From template' }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    style={{
+                      padding: '8px 16px',
+                      border: 'none',
+                      background: 'transparent',
+                      borderBottom: activeTab === tab.id ? '2px solid #f97316' : '2px solid transparent',
+                      color: activeTab === tab.id ? '#111827' : '#6b7280',
+                      fontWeight: activeTab === tab.id ? '600' : '400',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Project Name */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>
+                  New prototype
+                </label>
+                <input
+                  type="text"
+                  placeholder="Project name"
+                  value={projectName}
+                  onChange={e => setProjectName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleCreateProject(); }}
+                  style={{ 
+                    width: '100%', 
+                    padding: '10px 14px', 
+                    border: '1px solid #e5e7eb', 
+                    borderRadius: '8px', 
+                    fontSize: '14px',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    transition: 'border-color 0.2s'
+                  }}
+                  onFocus={e => e.target.style.borderColor = '#f97316'}
+                  onBlur={e => e.target.style.borderColor = '#e5e7eb'}
+                />
+              </div>
+
+              {/* Design System Dropdown */}
+              <div style={{ marginBottom: '16px', position: 'relative' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>
+                  Design system
+                </label>
+                <button
+                  onClick={() => setShowDesignSystemDropdown(!showDesignSystemDropdown)}
+                  style={{ 
+                    width: '100%', 
+                    padding: '10px 14px', 
+                    border: showDesignSystemDropdown ? '2px solid #f97316' : '1px solid #e5e7eb', 
+                    borderRadius: '8px', 
+                    fontSize: '14px',
+                    background: '#fff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {selectedDesignSystem ? (
+                    <>
+                      <div style={{ 
+                        width: '28px', 
+                        height: '28px', 
+                        borderRadius: '6px', 
+                        background: selectedDesignSystem.isBuiltIn && selectedDesignSystem.id === 'claude' 
+                          ? 'linear-gradient(135deg, #ff6b35, #f7c59f)'
+                          : 'linear-gradient(135deg, #f3f4f6 50%, #d1d5db 50%)',
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        fontSize: '14px'
+                      }}>
+                        {selectedDesignSystem.isBuiltIn && selectedDesignSystem.id === 'claude' ? '🟠' : '🟦'}
+                      </div>
+                      <div style={{ flex: 1, textAlign: 'left' }}>
+                        <div style={{ fontWeight: '500', color: '#111827' }}>{selectedDesignSystem.name}</div>
+                        <div style={{ fontSize: '11px', color: '#6b7280' }}>{selectedDesignSystem.description?.substring(0, 40)}...</div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ 
+                        width: '28px', 
+                        height: '28px', 
+                        borderRadius: '6px', 
+                        background: '#f3f4f6',
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center'
+                      }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                      </div>
+                      <span style={{ color: '#9ca3af' }}>Select design system</span>
+                    </>
+                  )}
+                  <svg style={{ marginLeft: 'auto', color: '#9ca3af' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+
+                {showDesignSystemDropdown && (
+                  <DesignSystemDropdown
+                    systems={designSystems}
+                    selectedId={selectedDesignSystem?.id}
+                    onSelect={handleSelectDesignSystem}
+                    onClose={() => setShowDesignSystemDropdown(false)}
+                  />
+                )}
+              </div>
+
+              {/* Companion Surfaces */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>
+                  Companion surfaces
+                </label>
+                
+                <div style={{ 
+                  padding: '12px', 
+                  border: '1px solid #e5e7eb', 
+                  borderRadius: '8px',
+                  marginBottom: '8px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px'
+                }}>
+                  <label style={{ flex: 1, cursor: 'pointer' }}>
+                    <div style={{ fontWeight: '500', fontSize: '13px', color: '#111827', marginBottom: '2px' }}>
+                      Include landing page
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6b7280', lineHeight: '1.4' }}>
+                      Add a responsive marketing page for ads, waitlists, launch campaigns, app downloads, or product explanation.
+                    </div>
+                  </label>
+                  <input
+                    type="checkbox"
+                    checked={includeLanding}
+                    onChange={e => setIncludeLanding(e.target.checked)}
+                    style={{ width: '18px', height: '18px', accentColor: '#f97316', flexShrink: 0 }}
+                  />
+                </div>
+
+                <div style={{ 
+                  padding: '12px', 
+                  border: '1px solid #e5e7eb', 
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px'
+                }}>
+                  <label style={{ flex: 1, cursor: 'pointer' }}>
+                    <div style={{ fontWeight: '500', fontSize: '13px', color: '#111827', marginBottom: '2px' }}>
+                      Include OS widgets
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6b7280', lineHeight: '1.4' }}>
+                      Available when iOS, Android, or tablet app is selected as a target platform.
+                    </div>
+                  </label>
+                  <input
+                    type="checkbox"
+                    checked={includeOSWidgets}
+                    onChange={e => setIncludeOSWidgets(e.target.checked)}
+                    disabled
+                    style={{ width: '18px', height: '18px', accentColor: '#f97316', flexShrink: 0, opacity: 0.5 }}
+                  />
+                </div>
+              </div>
+
+              {/* Fidelity */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>
+                  Fidelity
+                </label>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button
+                    onClick={() => setFidelity('wireframe')}
+                    style={{
+                      flex: 1,
+                      padding: '16px 12px',
+                      border: fidelity === 'wireframe' ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      background: fidelity === 'wireframe' ? '#eff6ff' : '#fff',
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ marginBottom: '8px' }}>
+                      <svg width="64" height="40" viewBox="0 0 64 40" fill="none">
+                        <rect x="2" y="2" width="28" height="36" rx="2" stroke="#9ca3af" strokeWidth="1.5" fill="none"/>
+                        <line x1="8" y1="10" x2="24" y2="10" stroke="#d1d5db" strokeWidth="1.5"/>
+                        <line x1="8" y1="16" x2="20" y2="16" stroke="#d1d5db" strokeWidth="1.5"/>
+                        <rect x="8" y="22" width="16" height="8" rx="1" stroke="#d1d5db" strokeWidth="1.5" fill="none"/>
+                        <rect x="34" y="2" width="28" height="36" rx="2" stroke="#9ca3af" strokeWidth="1.5" fill="none"/>
+                        <line x1="40" y1="10" x2="56" y2="10" stroke="#d1d5db" strokeWidth="1.5"/>
+                        <line x1="40" y1="16" x2="52" y2="16" stroke="#d1d5db" strokeWidth="1.5"/>
+                        <rect x="40" y="22" width="20" height="3" fill="#d1d5db"/>
+                        <rect x="40" y="28" width="16" height="3" fill="#d1d5db"/>
+                      </svg>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#374151', fontWeight: '500' }}>Wireframe</div>
+                  </button>
+
+                  <button
+                    onClick={() => setFidelity('high')}
+                    style={{
+                      flex: 1,
+                      padding: '16px 12px',
+                      border: fidelity === 'high' ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      background: fidelity === 'high' ? '#eff6ff' : '#fff',
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ marginBottom: '8px' }}>
+                      <svg width="64" height="40" viewBox="0 0 64 40" fill="none">
+                        <rect x="2" y="2" width="28" height="36" rx="2" stroke="#374151" strokeWidth="1.5" fill="#f9fafb"/>
+                        <rect x="6" y="6" width="20" height="6" rx="1" fill="#3b82f6" opacity="0.3"/>
+                        <rect x="6" y="16" width="16" height="4" rx="1" fill="#d1d5db"/>
+                        <rect x="6" y="24" width="20" height="10" rx="2" fill="#f97316" opacity="0.3"/>
+                        <rect x="34" y="2" width="28" height="36" rx="2" stroke="#374151" strokeWidth="1.5" fill="#f9fafb"/>
+                        <rect x="38" y="6" width="20" height="6" rx="1" fill="#374151" opacity="0.3"/>
+                        <rect x="38" y="16" width="16" height="4" rx="1" fill="#d1d5db"/>
+                        <rect x="38" y="24" width="12" height="3" rx="1" fill="#f97316" opacity="0.5"/>
+                        <rect x="38" y="30" width="16" height="3" rx="1" fill="#d1d5db"/>
+                      </svg>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#374151', fontWeight: '600' }}>High fidelity</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Create Button */}
+              <button
+                onClick={handleCreateProject}
+                disabled={!projectName.trim()}
+                style={{ 
+                  width: '100%', 
+                  padding: '12px', 
+                  border: 'none', 
+                  borderRadius: '8px', 
+                  background: projectName.trim() ? '#ea580c' : '#f3f4f6',
+                  color: projectName.trim() ? '#fff' : '#9ca3af',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: projectName.trim() ? 'pointer' : 'default',
+                  transition: 'all 0.2s',
+                  marginBottom: '12px'
+                }}
+              >
+                + Create
               </button>
-              <button className="icon-btn" onClick={() => { console.log('=== Settings button clicked ==='); onSettings(); }} title="Settings">
-                {Icons.settings}
+
+              {/* Import / Open */}
+              <button 
+                style={{ 
+                  width: '100%', 
+                  padding: '10px', 
+                  border: '1px solid #e5e7eb', 
+                  borderRadius: '8px', 
+                  background: '#fff',
+                  fontSize: '13px',
+                  color: '#374151',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  marginBottom: '8px'
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Import Claude Design ZIP
               </button>
+              
+              <button 
+                style={{ 
+                  width: '100%', 
+                  padding: '10px', 
+                  border: '1px solid #e5e7eb', 
+                  borderRadius: '8px', 
+                  background: '#fff',
+                  fontSize: '13px',
+                  color: '#374151',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                Open folder
+              </button>
+
+              <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '11px', color: '#9ca3af' }}>
+                Only you can see your project by default
+              </div>
             </div>
           </div>
 
-          {/* Projects Grid */}
-          <div className="entry-view">
-            <h2>Your Projects</h2>
+          {/* Right Panel - Recent Projects */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '24px' }}>
+            {/* Right Panel Header */}
+            <div style={{ marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#111827' }}>Recent</h2>
+            </div>
 
-            {projects.length === 0 ? (
-              <div className="empty-state">
-                <p>No projects yet. Create one to get started!</p>
-                <button className="btn btn-primary" onClick={() => setShowNewProject(true)}>
-                  {Icons.plus} New Project
-                </button>
+            {recentProjects.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: '12px', opacity: 0.5 }}><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <p style={{ fontSize: '14px' }}>No projects yet</p>
+                <p style={{ fontSize: '12px', marginTop: '4px' }}>Create your first prototype to get started!</p>
               </div>
             ) : (
-              <div className="projects-grid">
-                {projects.map(project => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {recentProjects.map(project => (
                   <div
                     key={project.id}
-                    className="project-card"
                     onClick={() => onOpenProject(project)}
+                    style={{
+                      padding: '16px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '10px',
+                      background: '#fff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px'
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(249,115,22,0.1)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.boxShadow = 'none'; }}
                   >
-                    <div className="project-card-content">
-                      <h3>{project.name}</h3>
-                      <p className="project-card-meta">
-                        {new Date(project.updatedAt).toLocaleDateString()}
-                        {project.skillId && ' · with skill'}
-                      </p>
+                    {/* Thumbnail */}
+                    <div style={{ 
+                      width: '80px', 
+                      height: '56px', 
+                      borderRadius: '6px', 
+                      background: 'linear-gradient(135deg, #f9fafb, #e5e7eb)',
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      border: '1px solid #e5e7eb'
+                    }}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
                     </div>
-                    <button
-                      className="icon-btn project-card-delete"
-                      onClick={(e) => handleDelete(project.id, e)}
-                      title="Delete"
-                    >
-                      {Icons.trash}
-                    </button>
+
+                    {/* Project Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: '600', fontSize: '14px', color: '#111827', marginBottom: '4px' }}>
+                        {project.name}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#6b7280' }}>
+                        <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
+                        {project.designSystemId && <span>· {project.designSystemId}</span>}
+                      </div>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div style={{ 
+                      padding: '4px 10px', 
+                      borderRadius: '12px', 
+                      fontSize: '11px', 
+                      fontWeight: '500',
+                      background: '#eff6ff',
+                      color: '#3b82f6'
+                    }}>
+                      Prototype
+                    </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
 
-          {/* New Project Modal */}
-          {showNewProject && (
-            <div className="modal-overlay" onClick={() => setShowNewProject(false)}>
-              <div className="modal" onClick={e => e.stopPropagation()}>
-                <div className="modal-header">
-                  <h2>New Project</h2>
-                  <button className="icon-btn" onClick={() => setShowNewProject(false)}>{Icons.close}</button>
-                </div>
-                <div className="setting-group">
-                  <label>Project Name</label>
-                  <input
-                    id="project-name-input"
-                    placeholder="My Awesome Project"
-                    value={newName}
-                    onChange={function (e) { console.log('INPUT CHANGE:', e.target.value); setNewName(e.target.value); }}
-                    onKeyDown={function (e) { if (e.key === 'Enter') handleCreate(); }}
-                    autoFocus
-                  />
-                </div>
-                <div className="modal-footer">
-                  <button className="btn btn-primary" onClick={handleCreate}>Create</button>
-                </div>
+            {/* Bottom Bar */}
+            <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#6b7280', marginBottom: '12px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
+                Local CLI · no agent selected
+              </div>
+              
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => onSettings()}
+                  style={{ 
+                    flex: 1, 
+                    padding: '8px 12px', 
+                    border: '1px solid #e5e7eb', 
+                    borderRadius: '6px', 
+                    background: '#fff',
+                    fontSize: '12px',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  Settings
+                </button>
               </div>
             </div>
-          )}
+          </div>
         </div>
       );
     }
