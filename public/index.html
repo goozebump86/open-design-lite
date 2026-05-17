@@ -526,6 +526,8 @@
       const [editMode, setEditMode] = useState(false);
       const [tweakPrompt, setTweakPrompt] = useState('');
       const [showTweakInput, setShowTweakInput] = useState(false);
+      const [elementEditPrompt, setElementEditPrompt] = useState('');
+      const [showSource, setShowSource] = useState(true);
       const [timer, setTimer] = useState(0);
       const [saveToast, setSaveToast] = useState(null); // { message, type }
       const iframeRef = useRef(null);
@@ -821,7 +823,7 @@
 
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
             {/* Left Pane: Code & Chat */}
-            <div style={{ width: '300px', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e5e7eb', background: '#fff' }}>
+            <div style={{ width: showSource ? '300px' : '0px', minWidth: showSource ? '300px' : '0px', maxWidth: showSource ? '300px' : '0px', display: 'flex', flexDirection: 'column', borderRight: showSource ? '1px solid #e5e7eb' : 'none', background: '#fff', overflow: 'hidden', transition: 'all 0.2s ease' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', borderBottom: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280' }}>+</button>
@@ -854,7 +856,10 @@
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: '#fff', borderBottom: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
                   <button style={{ border: 'none', background: 'transparent', fontWeight: 'bold', borderBottom: '2px solid #000', paddingBottom: '4px', cursor: 'pointer' }}>Preview</button>
-                  <button style={{ border: 'none', background: 'transparent', color: '#6b7280', cursor: 'pointer' }}>Source</button>
+                  <button 
+                    onClick={() => setShowSource(!showSource)}
+                    style={{ border: 'none', background: 'transparent', color: showSource ? '#000' : '#6b7280', cursor: 'pointer', fontWeight: showSource ? 'bold' : 'normal' }}
+                  >Source</button>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px' }}>
                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -948,6 +953,30 @@
                   </div>
                 ) : (
                   <>
+                  {/* ELEMENT EDIT PROMPT */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '8px', letterSpacing: '1px', textTransform: 'uppercase' }}>Edit Element</div>
+                    <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                      <input
+                        style={{ flex: 1, padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px', outline: 'none', background: '#f9fafb' }}
+                        placeholder="Tell me what to change (e.g., 'make it bigger', 'change color to blue')"
+                        value={elementEditPrompt}
+                        onChange={e => setElementEditPrompt(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && elementEditPrompt.trim()) { handleSend(elementEditPrompt.trim(), selectedElement); setElementEditPrompt(''); } }}
+                      />
+                      <button
+                        onClick={() => { if (elementEditPrompt.trim()) { handleSend(elementEditPrompt.trim(), selectedElement); setElementEditPrompt(''); } }}
+                        disabled={!elementEditPrompt.trim()}
+                        style={{ padding: '8px 12px', border: 'none', borderRadius: '6px', background: elementEditPrompt.trim() ? '#000' : '#e5e7eb', color: elementEditPrompt.trim() ? '#fff' : '#9ca3af', cursor: elementEditPrompt.trim() ? 'pointer' : 'default', fontSize: '12px', whiteSpace: 'nowrap' }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#9ca3af' }}>
+                      Selected: &lt;{selectedElement?.tagName}&gt; {selectedElement?.id ? `#${selectedElement.id}` : ''} {selectedElement?.classes ? `.${selectedElement.classes.split(' ').slice(0, 2).join('.')}` : ''}
+                    </div>
+                  </div>
+
                   {/* TYPOGRAPHY */}
                   <div style={{ marginBottom: '24px' }}>
                     <div style={{ fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '1px', textTransform: 'uppercase' }}>Typography</div>
