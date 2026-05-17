@@ -1,0 +1,16 @@
+{
+  "id": "fb87538c-b352-470b-ae7b-4333f9a6d305",
+  "name": "test",
+  "skillId": null,
+  "designSystemId": "claude",
+  "createdAt": 1778989073003,
+  "updatedAt": 1778989073003,
+  "pendingPrompt": "Create a high fidelity  claude design.",
+  "metadata": {
+    "fidelity": "high",
+    "includeLanding": false,
+    "includeOSWidgets": false,
+    "selectedDesignSystem": "Claude (Anthropic)",
+    "mode": "prototype"
+  }
+}

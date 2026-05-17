@@ -384,16 +384,45 @@
     }
 
     // ============================================================
+    // IMAGE UPLOAD PREVIEW (above chat composer)
+    // ============================================================
+    function ImagePreviewStrip({ images, onRemove }) {
+      if (!images || images.length === 0) return null;
+      return (
+        <div style={{ display: 'flex', gap: '8px', padding: '8px 12px', borderBottom: '1px solid #e5e7eb', overflowX: 'auto', alignItems: 'center' }}>
+          {images.map((img, i) => (
+            <div key={i} style={{ position: 'relative', width: '56px', height: '56px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e5e7eb', flexShrink: 0 }}>
+              <img src={img.dataUrl} alt={`ref-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <button
+                onClick={() => onRemove(i)}
+                style={{
+                  position: 'absolute', top: '-4px', right: '-4px',
+                  width: '20px', height: '20px', borderRadius: '50%',
+                  background: '#ef4444', color: '#fff', border: 'none',
+                  fontSize: '12px', lineHeight: '20px', textAlign: 'center',
+                  cursor: 'pointer', padding: 0, fontWeight: 'bold'
+                }}
+              >×</button>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ============================================================
     // CHAT COMPOSER
     // ============================================================
     function ChatComposer({ streaming, sendDisabled, onSend, onStop, skills }) {
       const [text, setText] = useState('');
+      const [images, setImages] = useState([]); // { dataUrl, file }
       const textareaRef = useRef(null);
+      const fileInputRef = useRef(null);
 
       const handleSubmit = () => {
-        if (!text.trim() || sendDisabled) return;
-        onSend(text.trim());
+        if ((!text.trim() && images.length === 0) || sendDisabled) return;
+        onSend(text.trim(), images);
         setText('');
+        setImages([]);
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
       };
 
@@ -412,28 +441,106 @@
         }
       };
 
+      const handleFileSelect = (e) => {
+        const files = Array.from(e.target.files || []);
+        files.forEach(file => {
+          if (!file.type.startsWith('image/')) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            setImages(prev => [...prev, { dataUrl: ev.target.result, file }]);
+          };
+          reader.readAsDataURL(file);
+        });
+        // Reset input so same file can be selected again
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+
+      const removeImage = (index) => {
+        setImages(prev => prev.filter((_, i) => i !== index));
+      };
+
       return (
-        <div className="chat-composer">
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onInput={handleInput}
-            placeholder={streaming ? 'Agent is working...' : 'Describe what you want to build...'}
-            disabled={streaming}
-            rows={1}
-          />
-          <div className="composer-actions">
+        <div style={{ borderTop: '1px solid #e5e7eb', background: '#fff' }}>
+          {/* Image preview strip */}
+          <ImagePreviewStrip images={images} onRemove={removeImage} />
+          
+          {/* Image upload button + textarea row */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', padding: '10px 12px' }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+              id="chat-image-input"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                padding: '8px',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                background: '#f9fafb',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#6b7280',
+                flexShrink: 0
+              }}
+              title="Attach reference image"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </button>
+            
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={e => setText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onInput={handleInput}
+              placeholder={streaming ? 'Agent is working...' : 'Describe what you want to build...'}
+              disabled={streaming}
+              rows={1}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                resize: 'none',
+                fontFamily: 'system-ui, sans-serif',
+                lineHeight: '1.4'
+              }}
+            />
+            
             {streaming ? (
-              <button className="btn btn-secondary" onClick={onStop}>
+              <button
+                className="btn btn-secondary"
+                onClick={onStop}
+                style={{ padding: '8px 16px', border: 'none', borderRadius: '8px', background: '#f3f4f6', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#374151', flexShrink: 0 }}
+              >
                 {Icons.stop} Stop
               </button>
             ) : (
               <button
-                className="btn btn-primary"
                 onClick={handleSubmit}
-                disabled={!text.trim() || sendDisabled}
+                disabled={!text.trim() && images.length === 0 || sendDisabled}
+                style={{
+                  padding: '8px 16px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  background: (text.trim() || images.length > 0) && !sendDisabled ? '#000' : '#e5e7eb',
+                  color: (text.trim() || images.length > 0) && !sendDisabled ? '#fff' : '#9ca3af',
+                  cursor: (text.trim() || images.length > 0) && !sendDisabled ? 'pointer' : 'default',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  flexShrink: 0
+                }}
               >
                 {Icons.send} Send
               </button>
@@ -455,6 +562,14 @@
           logRef.current.scrollTop = logRef.current.scrollHeight;
         }
       }, [messages]);
+
+      // Check if a message content contains an artifact tag
+      const hasArtifact = (content) => /<artifact[\s>]/i.test(content);
+      const extractArtifactText = (content) => {
+        const match = content.match(/<artifact[^>]*>([\s\S]*?)<\/artifact>/);
+        if (match) return match[1];
+        return null;
+      };
 
       return (
         <div className="chat-pane">
@@ -490,12 +605,25 @@
                 </div>
               </div>
             ) : (
-              messages.map((msg, i) => (
-                <div key={i} className={`message ${msg.role}`}>
-                  <div className="message-role">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
-                  <div className="message-content">{msg.content}</div>
-                </div>
-              ))
+              messages.map((msg, i) => {
+                // If this is an assistant message containing an artifact, hide the raw HTML
+                const artifactContent = msg.role === 'assistant' && hasArtifact(msg.content) ? extractArtifactText(msg.content) : null;
+                
+                return (
+                  <div key={i} className={`message ${msg.role}`}>
+                    <div className="message-role">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
+                    {artifactContent !== null ? (
+                      // Hide raw artifact HTML, show a clean indicator instead
+                      <div className="message-content" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span style={{ color: '#10b981', fontSize: '13px' }}>Code generated</span>
+                      </div>
+                    ) : (
+                      <div className="message-content">{msg.content}</div>
+                    )}
+                  </div>
+                );
+              })
             )}
             {streaming && (
               <div className="message assistant">
@@ -854,8 +982,36 @@
         }
       };
 
-      const handleSend = useCallback(async (text, elementContext = null) => {
-        const newMsgs = [...messages, { role: 'user', content: text }];
+      const handleSend = useCallback(async (text, images = null, elementContext = null) => {
+        // Build the user message content
+        let userContent = text || '';
+        let userImages = [];
+        
+        if (images && images.length > 0) {
+          userImages = images.map(img => ({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: img.dataUrl.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png',
+              data: img.dataUrl.split(',')[1] // strip data:image/xxx;base64, prefix
+            }
+          }));
+        }
+
+        // Build message content - either text-only or text+images for Anthropic
+        const contentBlocks = [];
+        if (text) contentBlocks.push({ type: 'text', text });
+        if (userImages.length > 0) {
+          userImages.forEach(img => contentBlocks.push(img));
+        }
+
+        // If only images with no text, add a default prompt so Anthropic has something to work with
+        if (contentBlocks.length === 0) {
+          contentBlocks.push({ type: 'text', text: 'Please analyze this reference image.' });
+        }
+
+        const msgObj = { role: 'user', content: contentBlocks.length === 1 ? contentBlocks[0].text : contentBlocks };
+        const newMsgs = [...messages, msgObj];
         setMessages(newMsgs);
         setStreaming(true);
         if (!elementContext) setArtifactHtml(null);
@@ -1007,7 +1163,7 @@
                     <span style={{ cursor: 'pointer' }}>👍</span><span style={{ cursor: 'pointer' }}>👎</span>
                   </div>
                 </div>
-                <ChatComposer streaming={streaming} sendDisabled={streaming} onSend={handleSend} onStop={() => setStreaming(false)} skills={[]} />
+               <ChatComposer streaming={streaming} sendDisabled={streaming} onSend={handleSend} onStop={() => setStreaming(false)} skills={[]} />
               </div>
             </div>
 

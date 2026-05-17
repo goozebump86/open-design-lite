@@ -661,10 +661,21 @@ Apply ONLY the requested change to the selected element. Keep everything else id
     return res.status(401).json({ error: 'API key not configured. Please set it in Settings.' });
   }
   
-  const anthropicMessages = messages.map(m => ({
-    role: m.role === 'assistant' ? 'assistant' : 'user',
-    content: m.content
-  }));
+  // Build Anthropic messages with proper content block handling (supports text + images)
+  const anthropicMessages = messages.map(m => {
+    let content = m.content;
+    
+    // If content is already an array of content blocks (text + images), use as-is
+    if (Array.isArray(content)) {
+      return { role: m.role === 'assistant' ? 'assistant' : 'user', content };
+    }
+    
+    // If content is a string, wrap in text block
+    return {
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: [{ type: 'text', text: content }]
+    };
+  });
   
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -678,7 +689,17 @@ Apply ONLY the requested change to the selected element. Keep everything else id
         model: model || settings.model || 'claude-sonnet-4-20250514',
         max_tokens: maxTokens || settings.maxTokens || 8192,
         system: systemPrompt,
-        messages: anthropicMessages,
+        messages: anthropicMessages.map(m => {
+          // Handle content blocks (text + images) properly for Anthropic API
+          if (Array.isArray(m.content)) {
+            return m; // Already in correct format
+          }
+          // String content - wrap as text block
+          return {
+            role: m.role,
+            content: [{ type: 'text', text: m.content }]
+          };
+        }),
         stream: true
       })
     });

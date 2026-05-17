@@ -1,0 +1,16 @@
+{
+  "id": "2b430e10-c059-4d2c-9d70-9db9c551ecc9",
+  "name": "cool",
+  "skillId": null,
+  "designSystemId": "claude",
+  "createdAt": 1778990080946,
+  "updatedAt": 1778990080946,
+  "pendingPrompt": "Create a high fidelity landing page with claude design.",
+  "metadata": {
+    "fidelity": "high",
+    "includeLanding": true,
+    "includeOSWidgets": false,
+    "selectedDesignSystem": "Claude (Anthropic)",
+    "mode": "prototype"
+  }
+}
